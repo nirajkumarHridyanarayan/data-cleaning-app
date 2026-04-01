@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import warnings
+import csv
 warnings.filterwarnings("ignore")
 
 # =========================
@@ -16,30 +17,50 @@ report = {}
 st.set_page_config(page_title="Data Cleaning Tool", layout="wide")
 
 # =========================
-# SAFE FILE LOADER
+# SAFE FILE LOADER (FIXED)
 # =========================
 def load_file(uploaded_file):
     encodings = ['utf-8', 'latin1', 'cp1252']
 
     if uploaded_file.name.endswith('.csv'):
+
         for enc in encodings:
             try:
-                df = pd.read_csv(uploaded_file, encoding=enc)
-                st.success(f"✅ Loaded with encoding: {enc}")
+                # 🔥 Detect delimiter
+                sample = uploaded_file.read(5000).decode(enc)
+                uploaded_file.seek(0)
+
+                delimiter = csv.Sniffer().sniff(sample).delimiter
+
+                df = pd.read_csv(uploaded_file, encoding=enc, delimiter=delimiter)
+
+                # 🚨 STRUCTURE CHECK
+                if df.shape[1] < 5:
+                    st.warning("⚠️ Detected possible delimiter issue. Trying fallback...")
+
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, encoding=enc, delimiter=",")
+
+                st.success(f"✅ Loaded | Encoding: {enc} | Delimiter: '{delimiter}'")
                 return {"sheet1": df}, "csv"
+
             except:
+                uploaded_file.seek(0)
                 continue
-        st.error("❌ Could not read CSV file")
+
+        st.error("❌ Could not correctly parse CSV file")
         st.stop()
 
     else:
         return pd.read_excel(uploaded_file, sheet_name=None), "excel"
 
 # =========================
-# CLEAN FUNCTIONS
+# CLEAN FUNCTIONS (SAFE)
 # =========================
 
 def clean_column_names(df):
+    original_cols = df.columns.tolist()
+
     df.columns = (
         df.columns.astype(str)
         .str.strip()
@@ -48,16 +69,18 @@ def clean_column_names(df):
         .str.replace(r"[^\w]", "", regex=True)
     )
 
+    # Prevent empty columns
     new_cols = []
     for i, col in enumerate(df.columns):
         if col == "" or col is None:
-            new_cols.append(f"column_{i}")
+            new_cols.append(original_cols[i])  # 🔥 KEEP ORIGINAL
         else:
             new_cols.append(col)
 
     df.columns = new_cols
-    log.append("✔ Column names standardized")
+    log.append("✔ Column names standardized (structure preserved)")
     return df
+
 
 def fix_nan_strings(df):
     for col in df.select_dtypes(include='object').columns:
@@ -65,11 +88,13 @@ def fix_nan_strings(df):
     log.append("✔ Fixed string 'nan'")
     return df
 
+
 def standardize_text(df):
     for col in df.select_dtypes(include='object').columns:
         df[col] = df[col].astype(str).str.strip().str.lower()
     log.append("✔ Text standardized")
     return df
+
 
 def fix_data_types(df):
     for col in df.columns:
@@ -87,6 +112,7 @@ def fix_data_types(df):
     log.append("✔ Data types fixed")
     return df
 
+
 def handle_missing(df):
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
@@ -100,6 +126,7 @@ def handle_missing(df):
     log.append("✔ Missing handled")
     return df
 
+
 def remove_duplicates(df):
     before = len(df)
     df = df.drop_duplicates()
@@ -107,10 +134,12 @@ def remove_duplicates(df):
     log.append(f"✔ Duplicates removed: {before - len(df)}")
     return df
 
+
 def remove_noise(df):
     df = df.dropna(axis=1, how='all')
     log.append("✔ Empty columns removed")
     return df
+
 
 def calculate_quality_score(df):
     total = df.size
@@ -135,6 +164,12 @@ if uploaded_file:
     cleaned_sheets = {}
 
     for name, df in sheets.items():
+
+        # 🚨 FINAL STRUCTURE CHECK
+        if df.shape[1] < 5:
+            st.error("❌ File structure broken. Please check your file.")
+            st.stop()
+
         df = clean_column_names(df)
         df = fix_nan_strings(df)
         df = standardize_text(df)
@@ -167,27 +202,26 @@ if uploaded_file:
         st.write(log)
 
     # =========================
-    # SMART DOWNLOAD LOGIC
+    # SMART DOWNLOAD (SAME FORMAT)
     # =========================
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("📥 Download Cleaned Data")
 
     if file_type == "csv":
-        # Only first sheet
         df = list(cleaned_sheets.values())[0]
-        csv = df.to_csv(index=False).encode('utf-8')
+
+        csv_data = df.to_csv(index=False).encode('utf-8')
 
         st.sidebar.download_button(
             "⬇️ Download CSV",
-            data=csv,
+            data=csv_data,
             file_name="cleaned_data.csv",
             mime="text/csv",
             use_container_width=True
         )
 
     else:
-        # Excel (multi-sheet)
         from io import BytesIO
         buffer = BytesIO()
 
