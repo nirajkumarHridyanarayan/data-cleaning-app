@@ -11,23 +11,9 @@ log = []
 report = {}
 
 # =========================
-# PAGE CONFIG + STYLE
+# PAGE CONFIG
 # =========================
 st.set_page_config(page_title="Data Cleaning Tool", layout="wide")
-
-# 🎨 Button Styling
-st.markdown("""
-    <style>
-    .stDownloadButton>button {
-        background-color: #4CAF50;
-        color: white;
-        font-size: 16px;
-        border-radius: 10px;
-        padding: 10px;
-        width: 100%;
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 # =========================
 # SAFE FILE LOADER
@@ -40,13 +26,14 @@ def load_file(uploaded_file):
             try:
                 df = pd.read_csv(uploaded_file, encoding=enc)
                 st.success(f"✅ Loaded with encoding: {enc}")
-                return {"sheet1": df}
+                return {"sheet1": df}, "csv"
             except:
                 continue
         st.error("❌ Could not read CSV file")
         st.stop()
+
     else:
-        return pd.read_excel(uploaded_file, sheet_name=None)
+        return pd.read_excel(uploaded_file, sheet_name=None), "excel"
 
 # =========================
 # CLEAN FUNCTIONS
@@ -61,7 +48,6 @@ def clean_column_names(df):
         .str.replace(r"[^\w]", "", regex=True)
     )
 
-    # Fix empty column names
     new_cols = []
     for i, col in enumerate(df.columns):
         if col == "" or col is None:
@@ -101,28 +87,6 @@ def fix_data_types(df):
     log.append("✔ Data types fixed")
     return df
 
-def fix_age_column(df):
-    if "age" in df.columns:
-        df["age"] = pd.to_numeric(df["age"], errors='coerce')
-        df["age"].fillna(df["age"].median(), inplace=True)
-        df["age"] = df["age"].round().astype(int)
-    log.append("✔ Age fixed")
-    return df
-
-def fix_salary_column(df):
-    if "salary" in df.columns:
-        df["salary"] = pd.to_numeric(df["salary"], errors='coerce')
-        df["salary"].fillna(df["salary"].median(), inplace=True)
-    log.append("✔ Salary cleaned")
-    return df
-
-def clean_dates(df):
-    if "joining_date" in df.columns:
-        df["joining_date"] = pd.to_datetime(df["joining_date"], errors='coerce', dayfirst=True)
-        df["joining_date"] = df["joining_date"].dt.strftime('%Y-%m-%d')
-    log.append("✔ Dates formatted")
-    return df
-
 def handle_missing(df):
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
@@ -132,6 +96,7 @@ def handle_missing(df):
                 df[col].fillna(df[col].mode()[0], inplace=True)
             else:
                 df[col].fillna("unknown", inplace=True)
+
     log.append("✔ Missing handled")
     return df
 
@@ -140,29 +105,6 @@ def remove_duplicates(df):
     df = df.drop_duplicates()
     report['duplicates_removed'] = before - len(df)
     log.append(f"✔ Duplicates removed: {before - len(df)}")
-    return df
-
-def fix_invalid_values(df):
-    for col in df.select_dtypes(include=['int64', 'float64']).columns:
-        df[col] = df[col].apply(lambda x: np.nan if x < 0 else x)
-    log.append("✔ Invalid values fixed")
-    return df
-
-def handle_outliers(df):
-    for col in df.select_dtypes(include=['int64', 'float64']).columns:
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
-        IQR = Q3 - Q1
-        df[col] = np.clip(df[col], Q1 - 1.5 * IQR, Q3 + 1.5 * IQR)
-    log.append("✔ Outliers handled")
-    return df
-
-def standardize_categories(df):
-    if "city" in df.columns:
-        df["city"] = df["city"].replace({"mumbay": "mumbai"})
-    if "gender" in df.columns:
-        df["gender"] = df["gender"].replace({"m": "male", "f": "female"})
-    log.append("✔ Categories standardized")
     return df
 
 def remove_noise(df):
@@ -189,7 +131,7 @@ if uploaded_file:
     log.clear()
     report.clear()
 
-    sheets = load_file(uploaded_file)
+    sheets, file_type = load_file(uploaded_file)
     cleaned_sheets = {}
 
     for name, df in sheets.items():
@@ -197,14 +139,8 @@ if uploaded_file:
         df = fix_nan_strings(df)
         df = standardize_text(df)
         df = fix_data_types(df)
-        df = fix_age_column(df)
-        df = fix_salary_column(df)
-        df = clean_dates(df)
         df = handle_missing(df)
         df = remove_duplicates(df)
-        df = fix_invalid_values(df)
-        df = handle_outliers(df)
-        df = standardize_categories(df)
         df = remove_noise(df)
 
         cleaned_sheets[name] = df
@@ -214,6 +150,8 @@ if uploaded_file:
     col1, col2 = st.columns(2)
     col1.metric("📊 Data Quality Score", f"{score}/100")
     col2.metric("🧹 Duplicates Removed", report.get("duplicates_removed", 0))
+
+    st.divider()
 
     tab1, tab2, tab3 = st.tabs(["📄 Data", "📋 Report", "🧾 Logs"])
 
@@ -229,21 +167,37 @@ if uploaded_file:
         st.write(log)
 
     # =========================
-    # DOWNLOAD BUTTON (LEFT SIDEBAR)
+    # SMART DOWNLOAD LOGIC
     # =========================
+
     st.sidebar.markdown("---")
     st.sidebar.subheader("📥 Download Cleaned Data")
 
-    output_file = "cleaned_output.xlsx"
+    if file_type == "csv":
+        # Only first sheet
+        df = list(cleaned_sheets.values())[0]
+        csv = df.to_csv(index=False).encode('utf-8')
 
-    with pd.ExcelWriter(output_file) as writer:
-        for name, df in cleaned_sheets.items():
-            df.to_excel(writer, sheet_name=name, index=False)
-
-    with open(output_file, "rb") as f:
         st.sidebar.download_button(
-            label="⬇️ Download Excel File",
-            data=f,
+            "⬇️ Download CSV",
+            data=csv,
+            file_name="cleaned_data.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    else:
+        # Excel (multi-sheet)
+        from io import BytesIO
+        buffer = BytesIO()
+
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            for name, df in cleaned_sheets.items():
+                df.to_excel(writer, sheet_name=name, index=False)
+
+        st.sidebar.download_button(
+            "⬇️ Download Excel",
+            data=buffer.getvalue(),
             file_name="cleaned_data.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
