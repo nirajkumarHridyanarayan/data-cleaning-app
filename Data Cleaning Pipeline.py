@@ -11,7 +11,32 @@ log = []
 report = {}
 
 # =========================
-# CLEAN FUNCTIONS (UNCHANGED LOGIC)
+# SAFE FILE LOADER (FIXED)
+# =========================
+def load_file(uploaded_file):
+    encodings = ['utf-8', 'latin1', 'cp1252']
+
+    if uploaded_file.name.endswith('.csv'):
+        for enc in encodings:
+            try:
+                df = pd.read_csv(uploaded_file, encoding=enc)
+                st.success(f"✅ File loaded using encoding: {enc}")
+                return {"sheet1": df}
+            except:
+                continue
+
+        st.error("❌ Could not read CSV file with supported encodings")
+        st.stop()
+
+    else:
+        try:
+            return pd.read_excel(uploaded_file, sheet_name=None)
+        except:
+            st.error("❌ Error reading Excel file")
+            st.stop()
+
+# =========================
+# CLEAN FUNCTIONS
 # =========================
 
 def clean_column_names(df):
@@ -36,7 +61,6 @@ def standardize_text(df):
     log.append("✔ Text standardized")
     return df
 
-# ✅ FIXED FUNCTION (only error fixed)
 def fix_data_types(df):
     for col in df.columns:
         if "id" in col:
@@ -139,7 +163,7 @@ def calculate_quality_score(df):
     return round((1 - missing / total) * 100, 2)
 
 # =========================
-# STREAMLIT UI (INTERACTIVE)
+# STREAMLIT UI
 # =========================
 
 st.set_page_config(page_title="Data Cleaning Tool", layout="wide")
@@ -158,12 +182,8 @@ if uploaded_file:
 
     progress = st.progress(0)
 
-    # LOAD FILE
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-        sheets = {"sheet1": df}
-    else:
-        sheets = pd.read_excel(uploaded_file, sheet_name=None)
+    # ✅ FIXED LOADER USED HERE
+    sheets = load_file(uploaded_file)
 
     cleaned_sheets = {}
 
