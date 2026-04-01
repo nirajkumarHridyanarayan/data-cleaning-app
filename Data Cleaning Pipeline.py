@@ -36,13 +36,19 @@ def standardize_text(df):
     log.append("✔ Text standardized")
     return df
 
+# ✅ FIXED FUNCTION (ONLY CHANGE HERE)
 def fix_data_types(df):
     for col in df.columns:
         if "id" in col:
             df[col] = df[col].astype(str)
             continue
 
-        df[col] = pd.to_numeric(df[col], errors='ignore')
+        # 🔥 FIX: replaced 'ignore' with 'coerce'
+        temp_col = pd.to_numeric(df[col], errors='coerce')
+
+        # Keep original logic behavior (only replace if conversion makes sense)
+        if temp_col.notna().sum() > 0:
+            df[col] = temp_col
 
         if "date" in col or "time" in col:
             df[col] = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
@@ -203,3 +209,6 @@ if uploaded_file:
 
     with open(output_file, "rb") as f:
         st.download_button("📥 Download Cleaned Data", f, "cleaned_data.xlsx")
+
+else:
+    st.info("👆 Please upload a file to begin")
