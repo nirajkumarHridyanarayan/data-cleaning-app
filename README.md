@@ -115,7 +115,7 @@ To achieve this, I designed and implemented:
 ```
 data-cleaning-app/
 │
-├── app.py
+├── Data Cleaning Pipeline.py
 ├── requirements.txt
 ├── README.md
 ```
